@@ -1,0 +1,3 @@
+-- dynamically update listed number of tasks upon addition of new ones
+-- dynamically update number of pages as they are deleted
+-- add a 'mark complete' option
