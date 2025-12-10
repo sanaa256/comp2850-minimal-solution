@@ -52,7 +52,26 @@ private suspend fun ApplicationCall.handleTaskList(store: TaskStore) {
         val query = requestedQuery()
         val page = requestedPage()
         val paginated = paginateTasks(store, query, page)
-        val html = renderTemplate("tasks/index.peb", paginated.context)
+        // Support no-JS flash messages via query params: ?flash=...&flashError=1
+        val flash = request.queryParameters["flash"]
+        val flashError = request.queryParameters["flashError"] == "1"
+
+        val context = paginated.context.toMutableMap()
+        if (!flash.isNullOrBlank()) {
+            context["flash"] = flash
+            context["flashError"] = flashError
+        }
+
+        // If this is a regular (no-JS) request with a query, show the same
+        // filter status message as HTMX (number of results and query text).
+        if (!isHtmxRequest() && query.isNotBlank()) {
+            val total = paginated.page.totalItems
+            val noun = if (total == 1) "task" else "tasks"
+            context["flash"] = "Found $total $noun matching \"$query\"."
+            context["flashError"] = false
+        }
+
+        val html = renderTemplate("tasks/index.peb", context)
         respondText(html, ContentType.Text.Html)
     }
 }
@@ -110,7 +129,8 @@ private suspend fun ApplicationCall.handleCreateTaskError(
         val statusHtml = messageStatusFragment(validation.message, isError = true)
         respondTaskArea(paginated, statusHtml)
     } else {
-        response.headers.append("Location", redirectPath(query, 1))
+        val loc = redirectPath(query, 1)
+        response.headers.append("Location", loc + (if (loc.contains("?")) "&" else "?") + "flash=${validation.message.encodeURLParameter()}&flashError=1")
         respond(HttpStatusCode.SeeOther)
     }
 }
@@ -127,11 +147,14 @@ private suspend fun ApplicationCall.handleCreateTaskSuccess(
         val paginated = paginateTasks(store, query, 1)
         val statusHtml =
             messageStatusFragment(
-                """Task "${task.title}" added successfully.""",
+                """Task added successfully.""",
             )
         respondTaskArea(paginated, statusHtml, htmxTrigger = "task-added")
     } else {
-        response.headers.append("Location", redirectPath(query, 1))
+        val loc = redirectPath(query, 1)
+        // Use a generic, non-identifying flash message for no-JS flows
+        val msg = "Task added successfully."
+        response.headers.append("Location", loc + (if (loc.contains("?")) "&" else "?") + "flash=${msg.encodeURLParameter()}")
         respond(HttpStatusCode.SeeOther)
     }
 }
@@ -169,7 +192,9 @@ private suspend fun ApplicationCall.handleToggleTask(store: TaskStore) {
 
             respondText(taskHtml + "\n" + statusHtml, ContentType.Text.Html)
         } else {
-            response.headers.append("Location", "/tasks")
+            val msg = if (updated.completed) "Task marked complete." else "Task marked incomplete."
+            val loc = "/tasks"
+            response.headers.append("Location", loc + "?flash=${msg.encodeURLParameter()}")
             respond(HttpStatusCode.SeeOther)
         }
     }
@@ -201,7 +226,9 @@ private suspend fun ApplicationCall.handleDeleteTask(store: TaskStore) {
                 )
             respondText(statusHtml, ContentType.Text.Html)
         } else {
-            response.headers.append("Location", "/tasks")
+            val msg = "Task deleted."
+            val loc = "/tasks"
+            response.headers.append("Location", loc + "?flash=${msg.encodeURLParameter()}")
             respond(HttpStatusCode.SeeOther)
         }
     }
@@ -220,7 +247,19 @@ private suspend fun ApplicationCall.handleSearchTasks(store: TaskStore) {
             val statusHtml = filterStatusFragment(query, paginated.page.totalItems)
             respondTaskArea(paginated, statusHtml)
         } else {
-            val html = renderTemplate("tasks/index.peb", paginated.context)
+            // No-JS: include the same status message in the full page context so
+            // the user sees the number of results and query text (matching HTMX)
+            val noun = if (paginated.page.totalItems == 1) "task" else "tasks"
+            val statusMessage =
+                if (query.isBlank()) null else "Found ${paginated.page.totalItems} $noun matching \"$query\"."
+
+            val context = paginated.context.toMutableMap()
+            if (statusMessage != null) {
+                context["flash"] = statusMessage
+                context["flashError"] = false
+            }
+
+            val html = renderTemplate("tasks/index.peb", context)
             respondText(html, ContentType.Text.Html)
         }
     }
@@ -370,8 +409,17 @@ private suspend fun ApplicationCall.handleUpdateTask(store: TaskStore) {
                     )
                 respondText(html, ContentType.Text.Html)
             } else {
-                // No-JS: redirect back (would need error handling)
-                respondRedirect("/tasks")
+                // No-JS: re-render full page with the edit form and the validation error
+                val query = requestedQuery()
+                val page = requestedPage()
+                val paginated = paginateTasks(store, query, page)
+
+                val context = paginated.context.toMutableMap()
+                context["editingTaskId"] = id
+                context["editError"] = validation.message
+
+                val html = renderTemplate("tasks/index.peb", context)
+                respondText(html, ContentType.Text.Html)
             }
             return@timed
         }
@@ -386,8 +434,11 @@ private suspend fun ApplicationCall.handleUpdateTask(store: TaskStore) {
             val status = """<div id="status" hx-swap-oob="true" role="status">Task updated successfully.</div>"""
             respondText(html + status, ContentType.Text.Html)
         } else {
-            // No-JS: redirect to list
-            respondRedirect("/tasks")
+            // No-JS: redirect to list with a flash message
+            val loc = "/tasks"
+            val msg = "Task updated successfully."
+            response.headers.append("Location", loc + "?flash=${msg.encodeURLParameter()}")
+            respond(HttpStatusCode.SeeOther)
         }
     }
 }

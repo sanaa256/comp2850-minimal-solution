@@ -1,7 +1,7 @@
 <ul id="task-list" aria-describedby="result-count">
   {% for task in page.items %}
     {% if editingTaskId == task.id %}
-      {% include "tasks/_edit.peb" with {"task": task} %}
+      {% include "tasks/_edit.peb" with {"task": task, "error": editError} %}
     {% else %}
       {% include "tasks/_item.peb" with {"task": task} %}
     {% endif %}
