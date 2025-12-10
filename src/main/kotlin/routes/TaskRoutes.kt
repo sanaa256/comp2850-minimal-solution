@@ -315,8 +315,17 @@ private suspend fun ApplicationCall.handleEditTask(store: TaskStore) {
         val html = renderTemplate("tasks/_edit.peb", mapOf("task" to task.toPebbleContext()))
         respondText(html, ContentType.Text.Html)
     } else {
-        // No-JS: redirect to list (would need edit mode support in index)
-        respondRedirect("/tasks")
+        // No-JS: render full page with the edit form replacing the task
+        val query = requestedQuery()
+        val page = requestedPage()
+        val paginated = paginateTasks(store, query, page)
+        
+        // Build context with the full task list, but mark this task as being edited
+        val context = paginated.context.toMutableMap()
+        context["editingTaskId"] = id
+        
+        val html = renderTemplate("tasks/index.peb", context)
+        respondText(html, ContentType.Text.Html)
     }
 }
 

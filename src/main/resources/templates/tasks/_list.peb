@@ -1,6 +1,10 @@
 <ul id="task-list" aria-describedby="result-count">
   {% for task in page.items %}
-    {% include "tasks/_item.peb" with {"task": task} %}
+    {% if editingTaskId == task.id %}
+      {% include "tasks/_edit.peb" with {"task": task} %}
+    {% else %}
+      {% include "tasks/_item.peb" with {"task": task} %}
+    {% endif %}
   {% endfor %}
 </ul>
 <p id="result-count" class="visually-hidden">Showing {{ page.items|length }} of {{ page.totalItems }}{% if query %} matching "{{ query }}"{% endif %}</p>
